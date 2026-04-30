@@ -38,17 +38,38 @@ training/     → PPO training loops
 evaluation/   → Backtest, metrics, benchmark comparison
 ```
 
-**Build order** — test each module independently before integrating:
-1. `data/crsp.py` — constituent lookups + delisting handling
-2. `data/compustat.py` — CCM link + lag logic
-3. `data/preprocess.py` — technical indicators
-4. `data/feature_store.py` — unified assembly (**write lag-correctness tests**)
-5. `data/environment.py` — point-in-time selection + delisting exits (**write tests**)
-6. `agents/stop_loss.py` — rule-based, simplest module
-7. `agents/buy_agent.py` + `training/train_buy.py`
-8. `agents/sell_agent.py` + `training/train_sell.py`
-9. `evaluation/` — backtest + metrics + benchmark comparison
-10. Enhancement data layers (one at a time, measure improvement before adding the next)
+### Implementation Status
+
+**Dev A — Data Pipeline (complete):**
+- `data/wrds_download.py` — downloads all 8 WRDS sources to `data/raw/*.parquet`
+- `data/crsp.py` — point-in-time S&P 500 universe, delisting exits with Shumway fills
+- `data/compustat.py` — CCM link, `rdq`/90-day lag, derived accounting ratios
+- `data/preprocess.py` — Donchian, RSI, MACD, ATR%, MAs, multi-horizon returns (all price-invariant)
+- `data/feature_store.py` — joins all sources into ~75-100 feature cross-sectional z-scored matrix
+- `data/environment.py` — full RL env: `reset()` / `step(buy_action, sell_action)` API, point-in-time universe, breakout filter, delisting exits, 0.1% txn cost
+- `data/mock_environment.py` — identical interface, synthetic data — Dev B starts here
+
+**Dev B — Agents/Training/Evaluation (pending):**
+- `agents/stop_loss.py`, `agents/buy_agent.py`, `agents/sell_agent.py`
+- `training/train_buy.py`, `training/train_sell.py`
+- `evaluation/backtest.py`, `evaluation/metrics.py`
+
+**Environment API** (both real and mock expose the same interface):
+```python
+env = TradingEnvironment(split="train")   # or MockTradingEnvironment()
+candidates = env.reset()                  # list of (permno, state_vector: np.ndarray)
+candidates, reward, done, info = env.step(buy_action, sell_action)
+# buy_action: list[int] of permnos to buy (subset of candidates)
+# sell_action: list[int] of permnos to exit from open positions
+```
+
+**Build order** — remaining modules:
+1. `agents/stop_loss.py` — rule-based, no ML, simplest module
+2. `agents/buy_agent.py` + `training/train_buy.py` — develop against `MockTradingEnvironment`
+3. `agents/sell_agent.py` + `training/train_sell.py`
+4. `evaluation/` — backtest + metrics + benchmark comparison
+5. Swap mock env for real env; run lag-correctness tests before training
+6. Enhancement data layers (one at a time, measure improvement before adding the next)
 
 ## Data Sources (WRDS)
 
