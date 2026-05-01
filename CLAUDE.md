@@ -13,38 +13,42 @@ Buy and Sell agents are **separate** PPO-trained neural networks — never merge
 ## Common Commands
 
 ```bash
-# Install dependencies
-pip install wrds pandas pandas-ta torch pyarrow scikit-learn matplotlib tqdm
+# Install dependencies (use python3.11 — pandas-ta requires pandas<2.2)
+python3.11 -m pip install wrds "pandas<2.2" torch pyarrow scikit-learn matplotlib tqdm
+python3.11 -m pip install git+https://github.com/twopirllc/pandas-ta.git@development
 
-# Download all WRDS data (run once, ~30-60 min)
-python -m data.wrds_download
+# Download all WRDS data (run once, ~30-60 min; prompts for WRDS credentials)
+python3.11 -m data.wrds_download
 
 # Run full pipeline
-python main.py
+python3.11 main.py
 
 # Train buy agent (uses MockTradingEnvironment by default)
-python -m training.train_buy
+python3.11 -m training.train_buy
 
 # Train sell agent (loads buy checkpoint, freezes it, trains sell)
-python -m training.train_sell
+python3.11 -m training.train_sell
 
 # Smoke test backtest with no WRDS required
-python -m evaluation.backtest --mock
+python3.11 -m evaluation.backtest --mock
 
 # Backtest on val set (run this before test set)
-python -m evaluation.backtest --split val
+python3.11 -m evaluation.backtest --split val
 
 # Backtest on test set — run only once after val tuning is done
-python -m evaluation.backtest --split test
+python3.11 -m evaluation.backtest --split test
 
 # Run stop loss unit tests
-python -m agents.stop_loss
+python3.11 -m agents.stop_loss
 
 # Run CRSP lag/delisting tests
-python -m data.crsp
+python3.11 -m data.crsp
 
 # Run Compustat lag tests
-python -m data.compustat
+python3.11 -m data.compustat
+
+# Check WRDS schema (run if download queries fail)
+python3.11 -m data.wrds_schema_check
 ```
 
 ## Architecture
@@ -76,7 +80,30 @@ evaluation/   → Backtest, metrics, benchmark comparison
 - `evaluation/backtest.py` — walk-forward backtest with `--split` and `--mock` flags
 - `evaluation/metrics.py` — Sharpe, Sortino, CAGR, Calmar, max drawdown, win rate, exit reason breakdown
 
-**Next step:** swap `MockTradingEnvironment` for `TradingEnvironment` in training scripts once WRDS data is downloaded. Run lag-correctness tests (`python -m data.crsp`, `python -m data.compustat`, `python -m data.feature_store`) before first real training run.
+**WRDS data download: complete.** All 9 parquet files saved to `data/raw/`:
+- `crsp_dsf.parquet` — 49.8M rows (v1 + v2 union)
+- `crsp_dsedelist.parquet` — 23.6K rows
+- `crsp_dsp500list.parquet` — 2,084 rows (v1 + v2 union)
+- `compustat_fundq.parquet` — 802K rows
+- `wrds_ratios.parquet` — 1.38M rows
+- `ibes_statsum.parquet` — 5.32M rows (SUE computed as `(actual-meanest)/stdev`)
+- `ibes_ticker_permno.parquet` — 37.7K rows
+- `ff_factors.parquet` — 6,830 rows
+- `beta_suite.parquet` — empty stub (not in subscription; beta features zero-filled in feature store)
+
+**Known schema notes** (already handled in `wrds_download.py`):
+- `dsf_v2` uses `dlycaldt/dlyprc/dlyret/dlyvol/dlycumfacpr/dlycumfacshr` instead of v1 names
+- `dsp500list_v2` uses `mbrstartdt/mbrenddt` instead of `start/ending`
+- `dsedelist_v2` and `ccmxpf_lnkhist_v2` do not exist — v1 only
+- `firm_ratio` does not have `dltt_eq` or `short_ratio` — removed
+- `ibes.statsum_epsus` does not have `suescore` — computed manually
+
+**Next step:** run lag-correctness tests before first real training run:
+```bash
+python3.11 -m data.crsp
+python3.11 -m data.compustat
+```
+Then swap `MockTradingEnvironment` → `TradingEnvironment` in `training/train_buy.py`.
 
 **Environment API** (both real and mock expose the same interface):
 ```python
