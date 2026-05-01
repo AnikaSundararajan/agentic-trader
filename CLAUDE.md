@@ -22,11 +22,29 @@ python -m data.wrds_download
 # Run full pipeline
 python main.py
 
-# Train only buy agent
+# Train buy agent (uses MockTradingEnvironment by default)
 python -m training.train_buy
 
-# Run backtest on test set
-python -m evaluation.backtest
+# Train sell agent (loads buy checkpoint, freezes it, trains sell)
+python -m training.train_sell
+
+# Smoke test backtest with no WRDS required
+python -m evaluation.backtest --mock
+
+# Backtest on val set (run this before test set)
+python -m evaluation.backtest --split val
+
+# Backtest on test set — run only once after val tuning is done
+python -m evaluation.backtest --split test
+
+# Run stop loss unit tests
+python -m agents.stop_loss
+
+# Run CRSP lag/delisting tests
+python -m data.crsp
+
+# Run Compustat lag tests
+python -m data.compustat
 ```
 
 ## Architecture
@@ -49,10 +67,16 @@ evaluation/   → Backtest, metrics, benchmark comparison
 - `data/environment.py` — full RL env: `reset()` / `step(buy_action, sell_action)` API, point-in-time universe, breakout filter, delisting exits, 0.1% txn cost
 - `data/mock_environment.py` — identical interface, synthetic data — Dev B starts here
 
-**Dev B — Agents/Training/Evaluation (pending):**
-- `agents/stop_loss.py`, `agents/buy_agent.py`, `agents/sell_agent.py`
-- `training/train_buy.py`, `training/train_sell.py`
-- `evaluation/backtest.py`, `evaluation/metrics.py`
+**Dev B — Agents/Training/Evaluation (complete):**
+- `agents/stop_loss.py` — rule-based: ATR-based (2×, beta-adjusted), 7% hard floor, trailing after +5% gain
+- `agents/buy_agent.py` — PPO actor-critic MLP with LayerNorm; binary buy/skip per candidate
+- `agents/sell_agent.py` — separate PPO network; state augmented with position-specific features (unrealized P&L, days held, trailing flag, drawdown from peak)
+- `training/train_buy.py` — PPO with GAE, selectivity reward shaping, val Sharpe checkpointing every 100 episodes
+- `training/train_sell.py` — buy agent frozen during sell training; patience penalty for exits within 5 days
+- `evaluation/backtest.py` — walk-forward backtest with `--split` and `--mock` flags
+- `evaluation/metrics.py` — Sharpe, Sortino, CAGR, Calmar, max drawdown, win rate, exit reason breakdown
+
+**Next step:** swap `MockTradingEnvironment` for `TradingEnvironment` in training scripts once WRDS data is downloaded. Run lag-correctness tests (`python -m data.crsp`, `python -m data.compustat`, `python -m data.feature_store`) before first real training run.
 
 **Environment API** (both real and mock expose the same interface):
 ```python
@@ -63,13 +87,12 @@ candidates, reward, done, info = env.step(buy_action, sell_action)
 # sell_action: list[int] of permnos to exit from open positions
 ```
 
-**Build order** — remaining modules:
-1. `agents/stop_loss.py` — rule-based, no ML, simplest module
-2. `agents/buy_agent.py` + `training/train_buy.py` — develop against `MockTradingEnvironment`
-3. `agents/sell_agent.py` + `training/train_sell.py`
-4. `evaluation/` — backtest + metrics + benchmark comparison
-5. Swap mock env for real env; run lag-correctness tests before training
-6. Enhancement data layers (one at a time, measure improvement before adding the next)
+**Sell agent state vector** = base market features + 5 position features:
+- `unrealized_pnl_pct`, `days_held_norm` (÷120), `days_held_sq`, `trailing_stop_active`, `drawdown_from_peak`
+
+**Checkpoints** saved under `checkpoints/buy/` and `checkpoints/sell/`. Best checkpoint selected by validation Sharpe.
+
+**Enhancement data layers** (add after base pipeline validated): RavenPack, MarketPsych, Short Volume, OptionMetrics — one at a time, measure Sharpe improvement before adding the next.
 
 ## Data Sources (WRDS)
 
