@@ -18,7 +18,11 @@ def _load_fundq() -> pd.DataFrame:
     df["datadate"] = pd.to_datetime(df["datadate"])
     df["rdq"] = pd.to_datetime(df["rdq"])
     # as_of_date: the first date this data is usable (point-in-time safe)
+    # Use rdq if available, else datadate + 90 days
     df["as_of_date"] = df["rdq"].fillna(df["datadate"] + pd.Timedelta(days=90))
+    # Guard: rdq occasionally precedes datadate due to Compustat data errors.
+    # Enforce as_of_date >= datadate so we never use data before the period ends.
+    df["as_of_date"] = df[["as_of_date", "datadate"]].max(axis=1)
     return df
 
 
@@ -104,11 +108,11 @@ def _test_lag_correctness():
     bad_lag = df[df["as_of_date"] < df["datadate"]]
     assert bad_lag.empty, f"{len(bad_lag)} rows where as_of_date < datadate"
 
-    # Rows with rdq should use rdq, not datadate+90
+    # Rows with rdq should use max(rdq, datadate) — rdq occasionally precedes datadate
     has_rdq = df[df["rdq"].notna()].copy()
-    has_rdq["expected_as_of"] = has_rdq["rdq"]
+    has_rdq["expected_as_of"] = has_rdq[["rdq", "datadate"]].max(axis=1)
     mismatch = has_rdq[has_rdq["as_of_date"] != has_rdq["expected_as_of"]]
-    assert mismatch.empty, f"{len(mismatch)} rows where rdq exists but as_of_date != rdq"
+    assert mismatch.empty, f"{len(mismatch)} rows where rdq exists but as_of_date != max(rdq, datadate)"
 
     # Rows without rdq should use datadate + 90
     no_rdq = df[df["rdq"].isna()].copy()

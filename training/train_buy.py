@@ -1,8 +1,8 @@
 """
 PPO training loop for the Buy agent.
-Run: python -m training.train_buy
+Run: python3.11 -m training.train_buy
 
-Uses MockTradingEnvironment by default. Swap to TradingEnvironment for real training.
+Trains on real WRDS data via TradingEnvironment.
 Checkpoints every 100 episodes; keeps best by validation Sharpe.
 Logs every trade to logs/buy_trades.csv.
 """
@@ -16,12 +16,10 @@ from pathlib import Path
 from dataclasses import dataclass
 from collections import deque
 
-from data.mock_environment import MockTradingEnvironment
+from data.environment import TradingEnvironment
+from data.mock_environment import MockTradingEnvironment  # kept for validation runs
 from agents.buy_agent import BuyAgent
 from agents.stop_loss import StopLossManager
-
-# Uncomment to train on real WRDS data:
-# from data.environment import TradingEnvironment
 
 torch.manual_seed(42)
 np.random.seed(42)
@@ -239,9 +237,11 @@ def train(cfg: PPOConfig | None = None):
     cfg = cfg or PPOConfig()
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    env = MockTradingEnvironment(n_episodes=cfg.n_steps_per_update * 4, seed=42)
-    candidates = env.reset()
+    # Probe feature size from first training day
+    _probe = TradingEnvironment(split="train")
+    candidates = _probe.reset()
     n_features = candidates[0][1].shape[0] if candidates else 75
+    del _probe
 
     agent = BuyAgent(n_features=n_features, device=device)
     optimizer = optim.Adam(agent.network.parameters(), lr=cfg.lr)
@@ -256,7 +256,7 @@ def train(cfg: PPOConfig | None = None):
     print(f"Training Buy Agent | device={device} | features={n_features}")
 
     for episode in range(1, cfg.n_episodes + 1):
-        env = MockTradingEnvironment(n_episodes=cfg.n_steps_per_update * 2, seed=episode)
+        env = TradingEnvironment(split="train")
         candidates = env.reset()
         ep_reward = 0.0
         done = False

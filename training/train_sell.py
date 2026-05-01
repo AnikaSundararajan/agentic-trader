@@ -1,12 +1,10 @@
 """
 PPO training loop for the Sell agent.
-Run: python -m training.train_sell
+Run: python3.11 -m training.train_sell
 
 The Sell agent is trained jointly with the Buy agent's decisions frozen:
 a pre-trained (or random) Buy agent fills positions, then the Sell agent
 learns when to exit them. This prevents the two agents interfering during training.
-
-Swap MockTradingEnvironment for TradingEnvironment for real data training.
 """
 
 import random
@@ -18,7 +16,8 @@ from pathlib import Path
 from collections import deque
 from dataclasses import dataclass
 
-from data.mock_environment import MockTradingEnvironment
+from data.environment import TradingEnvironment
+from data.mock_environment import MockTradingEnvironment  # kept for validation runs
 from agents.buy_agent import BuyAgent
 from agents.sell_agent import SellAgent, build_sell_state
 from agents.stop_loss import StopLossManager
@@ -239,10 +238,11 @@ def train(cfg: SellPPOConfig | None = None, buy_agent: BuyAgent | None = None):
     cfg = cfg or SellPPOConfig()
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    # Spin up a mock env to determine feature size
-    _probe_env = MockTradingEnvironment(n_episodes=10, seed=0)
+    # Probe feature size from real environment
+    _probe_env = TradingEnvironment(split="train")
     probe_candidates = _probe_env.reset()
     n_base_features = probe_candidates[0][1].shape[0] if probe_candidates else 75
+    del _probe_env
 
     # Buy agent (frozen during sell training)
     if buy_agent is None:
@@ -271,7 +271,7 @@ def train(cfg: SellPPOConfig | None = None, buy_agent: BuyAgent | None = None):
     print(f"Training Sell Agent | device={device} | base_features={n_base_features}")
 
     for episode in range(1, cfg.n_episodes + 1):
-        env = MockTradingEnvironment(n_episodes=cfg.n_steps_per_update * 2, seed=episode + 10000)
+        env = TradingEnvironment(split="train")
         candidates = env.reset()
         stop_mgr = StopLossManager()
         ep_reward = 0.0

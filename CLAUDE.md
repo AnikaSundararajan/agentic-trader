@@ -98,12 +98,13 @@ evaluation/   → Backtest, metrics, benchmark comparison
 - `firm_ratio` does not have `dltt_eq` or `short_ratio` — removed
 - `ibes.statsum_epsus` does not have `suescore` — computed manually
 
-**Next step:** run lag-correctness tests before first real training run:
-```bash
-python3.11 -m data.crsp
-python3.11 -m data.compustat
-```
-Then swap `MockTradingEnvironment` → `TradingEnvironment` in `training/train_buy.py`.
+**Lag-correctness tests: passing.**
+- `python3.11 -m data.crsp` — PASS (500 members on 2010-01-04, delisting fills correct)
+- `python3.11 -m data.compustat` — PASS (802,190 rows; 83 rows where rdq < datadate clamped to datadate)
+
+**Training scripts now use real data.** `TradingEnvironment(split="train")` is active in both `training/train_buy.py` and `training/train_sell.py`. `MockTradingEnvironment` is kept only for validation runs.
+
+**Next step:** run `python3.11 -m training.train_buy` to begin real training.
 
 **Environment API** (both real and mock expose the same interface):
 ```python
