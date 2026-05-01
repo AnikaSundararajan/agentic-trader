@@ -1,12 +1,14 @@
 """
 Technical indicator computation from CRSP daily price data.
 All indicators are price-level invariant (ratio/normalized forms).
-Uses pandas-ta for indicator calculations.
+Uses the 'ta' library (pip install ta) — pandas-ta is not compatible with arm64/Python 3.11.
 """
 
 import numpy as np
 import pandas as pd
-import pandas_ta as ta
+from ta.momentum import RSIIndicator
+from ta.trend import MACD
+from ta.volatility import AverageTrueRange
 
 
 def compute_technicals(df: pd.DataFrame) -> pd.DataFrame:
@@ -26,30 +28,27 @@ def compute_technicals(df: pd.DataFrame) -> pd.DataFrame:
     df["dc_upper"] = close.rolling(20).max()
     df["dc_lower"] = close.rolling(20).min()
     df["dc_mid"] = (df["dc_upper"] + df["dc_lower"]) / 2
-    # Position within channel: 0 = at lower band, 1 = at upper band
     dc_range = (df["dc_upper"] - df["dc_lower"]).replace(0, np.nan)
     df["dc_position"] = (close - df["dc_lower"]) / dc_range
-    # Breakout flag: close exceeds 20-day upper band
     df["dc_breakout"] = (close > df["dc_upper"].shift(1)).astype(float)
 
-    # --- ATR (average true range, normalized by price) ---
-    high = close  # CRSP daily doesn't have OHLC; approximate with close
-    low = close
-    atr_raw = ta.atr(high=high, low=low, close=close, length=14)
-    df["atr_pct"] = atr_raw / close  # price-level invariant
+    # --- ATR (normalized by price) ---
+    # CRSP daily has no OHLC — approximate high/low with close
+    atr = AverageTrueRange(high=close, low=close, close=close, window=14)
+    df["atr_pct"] = atr.average_true_range() / close
 
     # --- RSI ---
-    df["rsi_14"] = ta.rsi(close, length=14) / 100.0  # normalize to [0,1]
+    rsi = RSIIndicator(close=close, window=14)
+    df["rsi_14"] = rsi.rsi() / 100.0
 
-    # --- MACD signal (normalized) ---
-    macd_df = ta.macd(close, fast=12, slow=26, signal=9)
-    if macd_df is not None and not macd_df.empty:
-        df["macd_hist"] = macd_df.iloc[:, 1] / close  # histogram / price
+    # --- MACD histogram (normalized by price) ---
+    macd = MACD(close=close, window_slow=26, window_fast=12, window_sign=9)
+    df["macd_hist"] = macd.macd_diff() / close
 
-    # --- Moving averages (expressed as ratio to price, so price-invariant) ---
+    # --- Moving averages (ratio to price — price invariant) ---
     for window in [10, 20, 50, 120, 200]:
         ma = close.rolling(window).mean()
-        df[f"ma{window}_ratio"] = close / ma - 1  # % above/below MA
+        df[f"ma{window}_ratio"] = close / ma - 1
 
     # --- Multi-horizon returns ---
     for days in [1, 5, 10, 21, 63]:
@@ -59,13 +58,13 @@ def compute_technicals(df: pd.DataFrame) -> pd.DataFrame:
     vol_ma20 = volume.rolling(20).mean().replace(0, np.nan)
     df["rel_vol"] = volume / vol_ma20
 
-    # --- Momentum / trend ---
+    # --- Momentum ---
     df["ret_1m"] = close.pct_change(21)
     df["ret_3m"] = close.pct_change(63)
     df["ret_6m"] = close.pct_change(126)
-    df["ret_12m_skip1m"] = close.shift(21).pct_change(252 - 21)  # standard momentum
+    df["ret_12m_skip1m"] = close.shift(21).pct_change(252 - 21)
 
-    # --- Volatility ---
+    # --- Realized volatility ---
     df["vol_21d"] = df["ret"].rolling(21).std() * np.sqrt(252)
     df["vol_63d"] = df["ret"].rolling(63).std() * np.sqrt(252)
 

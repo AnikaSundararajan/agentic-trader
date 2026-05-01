@@ -166,10 +166,12 @@ def _test_trailing_stop():
 def _test_beta_adjustment():
     mgr = StopLossManager()
     # beta=2 → stop_distance = atr*2*beta = 2*2*2 = 8 → atr_stop = 92
+    # hard_floor = 100 * 0.93 = 93.0  (so test at 93.5 to stay above hard floor)
     mgr.register(permno=4, entry_price=100.0, atr=2.0, beta=2.0)
-    # Price at 93 — would trigger with beta=1 (stop=96) but stop is now 92
-    hits = mgr.check({4: 93.0})
-    assert 4 not in hits, "High-beta widens stop, 93 should not trigger"
+    # 93.5 > atr_stop(92) and > hard_floor(93) — should not trigger
+    hits = mgr.check({4: 93.5})
+    assert 4 not in hits, "High-beta widens stop, 93.5 should not trigger"
+    # 91.5 < atr_stop(92) — should trigger
     hits2 = mgr.check({4: 91.5})
     assert 4 in hits2, "High-beta ATR stop should trigger at 91.5"
     print("[PASS] beta adjustment widens stop")
